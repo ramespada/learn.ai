@@ -1,6 +1,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 /*
  * Multi(2)-layer perceptron for XOR.
@@ -31,20 +32,20 @@ typedef struct {
     /* Hidden -> Output */
     double W2[HIDDEN_SIZE];
     double b2;
-} Perceptron2Layer;
+} MLP2; //Multi-Layer Perceptron (2-layers)
 
-/* Sigmoid activation and its derivative */
+// Sigmoid activation and its derivative 
 static double sigmoid(double x) { return 1.0 / (1.0 + exp(-x));}
 
-/* If y = sigmoid(x), then derivative is y * (1 - y) */
+// If y = sigmoid(x), then derivative is y * (1 - y) 
 static double sigmoid_derivative_from_output(double y) { return y * (1.0 - y);}
 
-/* Small helper for random weight initialization in range [-1, 1] */
+// Random weight initialization in range [-1, 1] 
 static double rand_weight(void) { return 2.0 * ((double)rand() / (double)RAND_MAX) - 1.0;}
 
 // Initialize perceptron
-static void init_perceptron(Perceptron2Layer *model, unsigned int seed) {
-    srand(seed);
+static void init_perceptron(MLP2 *model) {
+    srand(time(NULL));
     for (int h = 0; h < HIDDEN_SIZE; ++h) {
         for (int i = 0; i < INPUT_SIZE; ++i) {
             model->W1[h][i] = rand_weight();
@@ -57,7 +58,7 @@ static void init_perceptron(Perceptron2Layer *model, unsigned int seed) {
 
 // Forward propagation:
 static void forward_pass(
-    const Perceptron2Layer *model,
+    const MLP2 *model,
     const double x[INPUT_SIZE],
     double hidden[HIDDEN_SIZE],
     double *y_hat
@@ -77,40 +78,36 @@ static void forward_pass(
     *y_hat = sigmoid(z_out);
 }
 
-/*
- * Train on one sample and return 0.5 * (prediction - target)^2.
- * This function contains the core 4 training steps:
- * 1) forward pass
- * 2) output error
- * 3) hidden backprop
- * 4) parameter updates
- */
-static double train_one_sample(
-    Perceptron2Layer *model,
-    const double x[INPUT_SIZE],
+// Output-layer error term.
+static double compute_output_delta(
+    const MLP2 *model,
+    double y_hat,
     double y_target
 ) {
-    double hidden[HIDDEN_SIZE];
-    double y_hat = 0.0;
-    double old_W2[HIDDEN_SIZE];
+    (void)model;
+    return y_hat - y_target;
+}
 
-    /* 1) Forward pass */
-    forward_pass(model, x, hidden, &y_hat);
-
-    /* 2) Output error (sigmoid + BCE gives: delta_out = y_hat - y_target) */
-    double delta_out = y_hat - y_target;
-
-    /* 3) Backprop to hidden layer (use old output weights for clarity) */
+// Backpropagate the output error into the hidden layer.
+static void backward_hidden_pass(
+    const MLP2 *model,
+    const double hidden[HIDDEN_SIZE],
+    double delta_out,
+    double delta_hidden[HIDDEN_SIZE]) 
+{
     for (int h = 0; h < HIDDEN_SIZE; ++h) {
-        old_W2[h] = model->W2[h];
+        delta_hidden[h] = (model->W2[h] * delta_out) * sigmoid_derivative_from_output(hidden[h]);
     }
-    double delta_hidden[HIDDEN_SIZE];
-    for (int h = 0; h < HIDDEN_SIZE; ++h) {
-        delta_hidden[h] =
-            (old_W2[h] * delta_out) * sigmoid_derivative_from_output(hidden[h]);
-    }
+}
 
-    /* 4) Gradient descent update */
+// Apply one gradient descent update step.
+static void update_parameters(
+    MLP2 *model,
+    const double x[INPUT_SIZE],
+    const double hidden[HIDDEN_SIZE],
+    double delta_out,
+    const double delta_hidden[HIDDEN_SIZE])
+{
     for (int h = 0; h < HIDDEN_SIZE; ++h) {
         model->W2[h] -= LEARNING_RATE * delta_out * hidden[h];
     }
@@ -122,6 +119,36 @@ static double train_one_sample(
         }
         model->b1[h] -= LEARNING_RATE * delta_hidden[h];
     }
+}
+
+/*
+ * Train on one sample and return 0.5 * (prediction - target)^2.
+ * This function contains the core 4 training steps:
+ * 1) forward pass
+ * 2) output error
+ * 3) hidden backprop
+ * 4) parameter updates
+ */
+static double train_one_sample(
+    MLP2 *model,
+    const double x[INPUT_SIZE],
+    double y_target
+) {
+    double hidden[HIDDEN_SIZE];
+    double y_hat = 0.0;
+    double delta_hidden[HIDDEN_SIZE];
+
+    /* 1) Forward pass */
+    forward_pass(model, x, hidden, &y_hat);
+
+    /* 2) Output error (sigmoid + BCE gives: delta_out = y_hat - y_target) */
+    double delta_out = compute_output_delta(model, y_hat, y_target);
+
+    /* 3) Backprop to hidden layer (use old output weights for clarity) */
+    backward_hidden_pass(model, hidden, delta_out, delta_hidden);
+
+    /* 4) Gradient descent update */
+    update_parameters(model, x, hidden, delta_out, delta_hidden);
 
     {
         double diff = y_hat - y_target;
@@ -129,7 +156,7 @@ static double train_one_sample(
     }
 }
 
-static double predict(const Perceptron2Layer *model, const double x[INPUT_SIZE]) {
+static double predict(const MLP2 *model, const double x[INPUT_SIZE]) {
     double hidden[HIDDEN_SIZE];
     double y_hat = 0.0;
     forward_pass(model, x, hidden, &y_hat);
@@ -153,8 +180,8 @@ int main(void) {
     };
     const double Y[SAMPLES] = {0.0, 1.0, 1.0, 0.0};
 
-    Perceptron2Layer model;
-    init_perceptron(&model, 42);
+    MLP2 model;
+    init_perceptron(&model);
 
     /* Stochastic gradient descent over the 4 XOR samples */
     for (int epoch = 0; epoch < EPOCHS; ++epoch) {
